@@ -14,6 +14,8 @@
 
 {$I asqlite_def.inc}
 {$HINTS OFF}
+
+{$DEFINE USEKEY}
 unit ASGSQLite3_unicode;
 {*_* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
 
@@ -329,12 +331,20 @@ type
     FSQL : string;
     FUtf8: boolean;
     DBHandle: Pointer;
+    //
+    FPassword:AnsiString;
     FASQLitePragma: TASQLite3Pragma;
     FASQLiteLog: TASQLite3Log;
     FLastError: string;
     fEncoding:TASQLiteCharset;
     SQLite3_Open16: function(dbname: PChar; var db: pointer): integer; cdecl;
     SQLite3_Close: function(db: pointer): integer; cdecl;
+    {$IFDEF USEKEY}
+    sqlite3_key: function(db: pointer; Key: PAnsiChar; Len: Integer): Integer; cdecl; //sqlite3_key
+    sqlite3_rekey: function(db: pointer; Key: PAnsiChar; Len: Integer): Integer; cdecl; //sqlite3_rekey
+    sqlite3_ErrMsg: function(db: pointer): PAnsiChar; cdecl; // 'sqlite3_errmsg';
+    {$ENDIF}
+
     SQLite3_Exec: function(DB: Pointer; SQLStatement: PAnsiChar; Callback: TSQLite3_Callback;
                            UserDate: Pointer; var ErrMsg: PAnsiChar): Integer; cdecl;
     SQLite3_LibVersion: function(): PAnsiChar; cdecl;
@@ -443,6 +453,7 @@ type
     property BeforeDisconnect: TASQLite3NotifyEvent read FBeforeDisconnect write FBeforeDisconnect;
     property OnBusy : TASQLite3NotifyEvent read FOnBusy write FOnBusy;
     property Encoding: TASQLiteCharset read fEncoding;
+    property DBPassword: AnsiString read FPassword write FPassword;
   end;
 
   AsgError = class(Exception);
@@ -1406,6 +1417,11 @@ begin
     begin
       @SQLite3_Open16 := GetProcAddress(DLLHandle, 'sqlite3_open16');
       @SQLite3_Close := GetProcAddress(DLLHandle, 'sqlite3_close');
+      {$IFDEF USEKEY}
+      @sqlite3_key := GetProcAddress(DLLHandle,'sqlite3_key');
+      @sqlite3_rekey := GetProcAddress(DLLHandle,'sqlite3_rekey');
+      @sqlite3_errmsg := GetProcAddress(DLLHandle,'sqlite3_errmsg');
+      {$ENDIF}
       @SQLite3_Exec := GetProcAddress(DLLHandle, 'sqlite3_exec');
       @SQLite3_LibVersion := GetProcAddress(DLLHandle, 'sqlite3_libversion');
       @SQLite3_errmsg16 := GetProcAddress(DLLHandle, 'sqlite3_errmsg16');
@@ -2470,6 +2486,18 @@ begin
     if DBHandle = nil then begin
        FConnected := false;
        raise AsgError.Create('Cannot open database');
+    end;
+    if (fPassword <> '') and Assigned(sqlite3_key) then
+    begin
+      //db is encrypted
+      //if not Assigned(sqlite3_key) then
+      //  raise ESQLiteException.Create('Loaded SQLite library does not support database encryption');
+
+      rv := sqlite3_key(DBHandle, PAnsiChar(fPassword), Length(fPassword));
+      if rv <> SQLITE_OK then
+      begin
+         raise AsgError.Create('Cannot Open encrypt database');
+      end
     end;
 
 //    SQLite3_create_collation16(DBHandle, pWideChar('system'), 1, self, systemNoCaseCompare);
